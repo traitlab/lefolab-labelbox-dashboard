@@ -107,102 +107,130 @@ def main():
     if all_images:
         images_df = pd.concat(all_images, ignore_index=True)
         
-        # Dashboard metrics
-        col1, col2 = st.columns(2)
-        
+        # Add status filter
+        st.header("Filter Options")
+        col1, col2 = st.columns([1, 3])  # Make left column smaller
         with col1:
-            st.metric("Total Images", len(images_df))
-        with col2:
-            status_counts = images_df['status'].value_counts()
-            st.metric("Images Annotated", 
-                     status_counts.get('DONE', 0) + status_counts.get('IN_REVIEW', 0))
+            available_statuses = ['All'] + sorted(images_df['status'].unique().tolist())
+            selected_status = st.selectbox("Filter by Status", available_statuses, index=0)
+        
+        # Filter data based on selection
+        if selected_status != 'All':
+            filtered_images_df = images_df[images_df['status'] == selected_status]
+        else:
+            filtered_images_df = images_df
+        
+        # Dashboard metrics
+        if selected_status == 'All':
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Total Images", len(images_df))
+            with col2:
+                status_counts = images_df['status'].value_counts()
+                st.metric("Images Annotated", 
+                         status_counts.get('DONE', 0) + status_counts.get('IN_REVIEW', 0))
+        else:
+            st.metric(f"Images ({selected_status.lower().title()})", len(filtered_images_df))
 
-        # Show status distribution
-        st.subheader("Image Status Distribution")
-        fig = px.pie(values=status_counts.values, names=status_counts.index)
-        st.plotly_chart(fig)
+        # Show status distribution only for 'All' option
+        if selected_status == 'All':
+            st.subheader("Image Status Distribution")
+            status_counts = images_df['status'].value_counts()
+            fig = px.pie(values=status_counts.values, names=status_counts.index)
+            st.plotly_chart(fig)
 
     # Process annotations data
     if all_annotations:
         df = pd.concat(all_annotations, ignore_index=True)
         
-        st.subheader("Annotation Statistics")
-        col1, col2, col3 = st.columns(3)
+        # Filter annotations based on status selection if images are available
+        if all_images and selected_status != 'All':
+            # Get image IDs that match the selected status
+            filtered_image_ids = filtered_images_df['image_id'].unique()
+            df = df[df['image_id'].isin(filtered_image_ids)]
         
-        with col1:
-            st.metric("Total Annotations", len(df))
-        with col2:
-            st.metric("Unique Taxa", df['taxa'].nunique())
-        with col3:
-            st.metric("Number of Labelers", df['labeler'].nunique())
-        
-        # Create visualizations
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Annotations by Taxa")
-            taxa_counts = df['taxa'].value_counts()
+        # Only show annotations section if there are annotations to display
+        if not df.empty:
+            st.header("Annotation Statistics")
+            col1, col2, col3 = st.columns(3)
             
-            chart_orientation = st.radio(
-                "Chart orientation",
-                ["Horizontal", "Vertical"],
-                horizontal=True,
-                key="taxa_chart_orientation"
+            with col1:
+                st.metric("Total Annotations", len(df))
+            with col2:
+                st.metric("Unique Taxa", df['taxa'].nunique())
+            with col3:
+                st.metric("Number of Labelers", df['labeler'].nunique())
+            
+            # Create visualizations
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("Annotations by Taxa")
+                taxa_counts = df['taxa'].value_counts()
+                
+                chart_orientation = st.radio(
+                    "Chart orientation",
+                    ["Horizontal", "Vertical"],
+                    horizontal=True,
+                    key="taxa_chart_orientation"
+                )
+                
+                if chart_orientation == "Horizontal":
+                    fig = px.bar(
+                        x=taxa_counts.values,
+                        y=taxa_counts.index,
+                        orientation='h',
+                        height=max(400, len(taxa_counts) * 20)
+                    )
+                    fig.update_layout(
+                        yaxis={'categoryorder': 'total ascending'},
+                        xaxis_title="Count",
+                        yaxis_title="Taxa"
+                    )
+                else:
+                    fig = px.bar(
+                        x=taxa_counts.index,
+                        y=taxa_counts.values,
+                        height=500
+                    )
+                    fig.update_layout(
+                        xaxis={'categoryorder': 'total descending'},
+                        xaxis_title="Taxa",
+                        yaxis_title="Count"
+                    )
+                    fig.update_xaxes(tickangle=45)
+                
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with col2:
+                st.subheader("Annotations by Labeler")
+                labeler_counts = df['labeler'].value_counts()
+                fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
+                st.plotly_chart(fig)
+            
+            # Show taxa list with download button
+            st.subheader("Taxa List")
+            taxa_list = sorted(df['taxa'].unique())
+
+            # Create DataFrame for export
+            taxa_df = pd.DataFrame({'Taxa': taxa_list})
+            
+            # Convert DataFrame to CSV
+            csv = taxa_df.to_csv(index=False).encode('utf-8')
+            
+            # Add download button
+            st.download_button(
+                label="Download Taxa List as CSV",
+                data=csv,
+                file_name="taxa_list.csv",
+                mime="text/csv"
             )
             
-            if chart_orientation == "Horizontal":
-                fig = px.bar(
-                    x=taxa_counts.values,
-                    y=taxa_counts.index,
-                    orientation='h',
-                    height=max(400, len(taxa_counts) * 20)
-                )
-                fig.update_layout(
-                    yaxis={'categoryorder': 'total ascending'},
-                    xaxis_title="Count",
-                    yaxis_title="Taxa"
-                )
-            else:
-                fig = px.bar(
-                    x=taxa_counts.index,
-                    y=taxa_counts.values,
-                    height=500
-                )
-                fig.update_layout(
-                    xaxis={'categoryorder': 'total descending'},
-                    xaxis_title="Taxa",
-                    yaxis_title="Count"
-                )
-                fig.update_xaxes(tickangle=45)
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Annotations by Labeler")
-            labeler_counts = df['labeler'].value_counts()
-            fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
-            st.plotly_chart(fig)
-        
-        # Show taxa list with download button
-        st.subheader("Taxa List")
-        taxa_list = sorted(df['taxa'].unique())
-
-        # Create DataFrame for export
-        taxa_df = pd.DataFrame({'Taxa': taxa_list})
-        
-        # Convert DataFrame to CSV
-        csv = taxa_df.to_csv(index=False).encode('utf-8')
-        
-        # Add download button
-        st.download_button(
-            label="Download Taxa List as CSV",
-            data=csv,
-            file_name="taxa_list.csv",
-            mime="text/csv"
-        )
-        
-        # Display the list in the dashboard
-        st.write(taxa_list)
+            # Display the list in the dashboard
+            st.write(taxa_list)
+        else:
+            st.info("No annotations available for the selected status filter.")
     
     if not all_annotations and not all_images:
         st.error("No valid data found in uploaded files")
