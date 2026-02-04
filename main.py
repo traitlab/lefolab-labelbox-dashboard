@@ -1,8 +1,12 @@
+import boto3
 import json
 import pandas as pd
-import streamlit as st
 import plotly.express as px
+import streamlit as st
 import requests
+import bcrypt
+
+from datetime import datetime, timedelta
 from pathlib import Path
 
 def load_ndjson_data(file_path):
@@ -12,6 +16,74 @@ def load_ndjson_data(file_path):
         for line in f:
             data.append(json.loads(line))
     return data
+
+def check_password():
+    """Returns True if user is authenticated, False otherwise. Shows password input if not authenticated."""
+    # Get timeout duration from secrets (default 30 minutes)
+    timeout_minutes = int(st.secrets.get("AUTH_TIMEOUT_MINUTES", "30"))
+    
+    # Initialize session state for authentication
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.auth_timestamp = None
+    
+    # Check if authenticated and session hasn't expired
+    if st.session_state.authenticated:
+        if st.session_state.auth_timestamp:
+            elapsed = datetime.now() - st.session_state.auth_timestamp
+            if elapsed > timedelta(minutes=timeout_minutes):
+                # Session expired - reset authentication
+                st.session_state.authenticated = False
+                st.session_state.auth_timestamp = None
+                st.warning("Session expired. Please login again.")
+            else:
+                # Session valid - refresh timestamp for idle timeout
+                st.session_state.auth_timestamp = datetime.now()
+                return True
+    
+    # Show password input
+    st.warning("This content is password protected.")
+    password_input = st.text_input("Enter password to access:", type="password", key="password_input")
+    
+    if st.button("Submit", key="password_submit"):
+        # Get hashed password from secrets
+        stored_hash = st.secrets.get("PASSWORD_HASH", "").encode('utf-8')
+        
+        if stored_hash and bcrypt.checkpw(password_input.encode('utf-8'), stored_hash):
+            st.session_state.authenticated = True
+            st.session_state.auth_timestamp = datetime.now()
+            st.rerun()
+        else:
+            st.error("Incorrect password. Please try again.")
+    
+    return False
+
+@st.cache_data
+def load_from_s3(file_key):
+    """Load NDJSON data from S3 bucket. Cache refreshes daily based on date."""
+    cache_date = datetime.now().strftime('%Y-%m-%d')
+    
+    try:
+        # Get AWS credentials from Streamlit secrets
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=st.secrets["AWS_REGION"],
+            endpoint_url=st.secrets["S3_ENDPOINT"]
+        )
+        
+        # Download file from S3
+        bucket = st.secrets["BUCKET"]
+        response = s3_client.get_object(Bucket=bucket, Key=file_key)
+        content = response['Body'].read().decode('utf-8')
+        
+        # Parse NDJSON content
+        raw_data = [json.loads(line) for line in content.splitlines() if line.strip()]
+        return raw_data, None
+        
+    except Exception as e:
+        return None, str(e)
 
 @st.cache_data
 def get_gbif_info(taxa_id):
@@ -112,42 +184,8 @@ def extract_annotations(data):
     
     return annotations_df, images_df, {}
 
-def main():
-    st.set_page_config(page_title="Labelbox Annotations Dashboard", layout="wide")
-    st.title("Labelbox Annotations Dashboard")
-
-    uploaded_files = st.file_uploader(
-        "Choose NDJSON file(s)", 
-        type="ndjson",
-        accept_multiple_files=True
-    )
-
-    if not uploaded_files:
-        st.warning("Please upload one or more NDJSON files to begin.")
-        return
-
-    all_annotations = []
-    all_images = []
-    all_gbif_info = {}
-    
-    for uploaded_file in uploaded_files:
-        st.write(f"Processing: {uploaded_file.name}")
-        try:
-            content = uploaded_file.getvalue().decode()
-            raw_data = [json.loads(line) for line in content.splitlines() if line.strip()]
-            
-            annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
-            
-            if not images_df.empty:
-                all_images.append(images_df)
-            if not annotations_df.empty:
-                all_annotations.append(annotations_df)
-            # Merge GBIF info mappings from all files
-            all_gbif_info.update(gbif_info_mapping)
-                
-        except Exception as e:
-            st.error(f"Error processing {uploaded_file.name}: {str(e)}")
-            continue
+def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key):
+    """Process and display annotation and image data."""
 
     # Process images data
     if all_images:
@@ -158,7 +196,7 @@ def main():
         col1, col2 = st.columns([1, 3])  # Make left column smaller
         with col1:
             available_statuses = ['All'] + sorted(images_df['status'].unique().tolist())
-            selected_status = st.selectbox("Filter by Status", available_statuses, index=0)
+            selected_status = st.selectbox("Filter by Status", available_statuses, index=0, key=f"status_filter_{tab_key}")
         
         # Filter data based on selection
         if selected_status != 'All':
@@ -209,7 +247,7 @@ def main():
                 "Chart orientation",
                 ["Vertical", "Horizontal"],
                 horizontal=True,
-                key="taxa_chart_orientation"
+                key=f"taxa_chart_orientation_{tab_key}"
             )
             
             if chart_orientation == "Horizontal":
@@ -303,8 +341,9 @@ def main():
         st.download_button(
             label="Download Taxa List with Ranks as CSV",
             data=csv,
-            file_name="taxa_list_with_ranks.csv",
-            mime="text/csv"
+            file_name=f"{tab_key}_taxa_list.csv",
+            mime="text/csv",
+            key=f"download_taxa_ranks_{tab_key}"
         )
         
         # New section for species-level annotations with image URLs
@@ -345,9 +384,10 @@ def main():
             st.download_button(
                 label="Download Species Annotations with Image URLs as CSV",
                 data=species_csv,
-                file_name="species_annotations_with_images.csv",
+                file_name=f"{tab_key}_species_images.csv",
                 mime="text/csv",
-                help="Download all annotations with SPECIES rank including image URLs"
+                help="Download all annotations with SPECIES rank including image URLs",
+                key=f"download_species_{tab_key}"
             )
         else:
             st.info("No species-level annotations found in the dataset.")
@@ -387,7 +427,121 @@ def main():
         st.dataframe(taxonomic_level_summary, use_container_width=True)
         
     if not all_annotations and not all_images:
-        st.error("No valid data found in uploaded files")
+        st.error("No valid data found")
+
+def main():
+    st.set_page_config(page_title="Labelbox Annotations Dashboard", layout="wide")
+    st.title("Labelbox Annotations Dashboard")
+    
+    # Create tabs
+    tab1, tab2, tab3 = st.tabs(["Upload Files", "Barro Colorado Island", "Tiputini Biodiversity Station"])
+    
+    # Tab 1: File Upload
+    with tab1:
+        uploaded_files = st.file_uploader(
+            "Choose NDJSON file(s)", 
+            type="ndjson",
+            accept_multiple_files=True
+        )
+
+        if not uploaded_files:
+            st.warning("Please upload one or more NDJSON files exported from Labelbox to begin.")
+        else:
+            all_annotations = []
+            all_images = []
+            all_gbif_info = {}
+            
+            for uploaded_file in uploaded_files:
+                st.write(f"Processing: {uploaded_file.name}")
+                try:
+                    content = uploaded_file.getvalue().decode()
+                    raw_data = [json.loads(line) for line in content.splitlines() if line.strip()]
+                    
+                    annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                    
+                    if not images_df.empty:
+                        all_images.append(images_df)
+                    if not annotations_df.empty:
+                        all_annotations.append(annotations_df)
+                    # Merge GBIF info mappings from all files
+                    all_gbif_info.update(gbif_info_mapping)
+                        
+                except Exception as e:
+                    st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                    continue
+            
+            # Display the data
+            process_and_display_data(all_annotations, all_images, all_gbif_info, 'upload')
+    
+    # Tab 2: Barro Colorado Island
+    with tab2:
+        # Check authentication first
+        if not check_password():
+            return  # Exit if not authenticated
+        
+        info_placeholder = st.empty()
+        info_placeholder.info("Loading data from Arbutus...")
+        raw_data, error = load_from_s3('2024_BCI.json')
+        info_placeholder.empty()
+        
+        if error:
+            st.error(f"Error loading BCI data: {error}")
+        elif raw_data:
+            all_annotations = []
+            all_images = []
+            all_gbif_info = {}
+            
+            try:
+                annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                
+                if not images_df.empty:
+                    all_images.append(images_df)
+                if not annotations_df.empty:
+                    all_annotations.append(annotations_df)
+                all_gbif_info.update(gbif_info_mapping)
+                
+                # Display the data
+                process_and_display_data(all_annotations, all_images, all_gbif_info, '2024_BCI')
+                
+            except Exception as e:
+                st.error(f"Error processing BCI data: {str(e)}")
+        else:
+            st.warning("No data found for Barro Colorado Island")
+    
+    # Tab 3: Tiputini Biodiversity Station
+    with tab3:
+        # Check authentication first
+        if not check_password():
+            return  # Exit if not authenticated
+        
+        info_placeholder = st.empty()
+        info_placeholder.info("Loading data from Arbutus...")
+        raw_data, error = load_from_s3('2025_TBS.json')
+        info_placeholder.empty()
+        
+        if error:
+            st.error(f"Error loading TBS data: {error}")
+        elif raw_data:
+            all_annotations = []
+            all_images = []
+            all_gbif_info = {}
+            
+            try:
+                annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                
+                if not images_df.empty:
+                    all_images.append(images_df)
+                if not annotations_df.empty:
+                    all_annotations.append(annotations_df)
+                all_gbif_info.update(gbif_info_mapping)
+                
+                # Display the data
+                process_and_display_data(all_annotations, all_images, all_gbif_info, '2025_TBS')
+                
+            except Exception as e:
+                st.error(f"Error processing TBS data: {str(e)}")
+        else:
+            st.warning("No data found for Tiputini Biodiversity Station")
 
 if __name__ == "__main__":
     main()
