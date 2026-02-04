@@ -108,9 +108,9 @@ def get_gbif_info(taxa_id):
     except Exception as e:
         return {'rank': 'Unknown', 'species': 'Unknown', 'genus': 'Unknown', 'family': 'Unknown'}
 
-def extract_annotations(data):
-    """Extract relevant annotation information from raw data."""
-    annotations = []
+def extract_labels(data):
+    """Extract relevant label information from raw data."""
+    labels = []
     images = []
     
     for item in data:
@@ -118,10 +118,10 @@ def extract_annotations(data):
         data_row = item['data_row']
         projects = item['projects']
         
-        # Add image information regardless of annotation status
+        # Add image information regardless of label status
         image_info = {
             'image_id': data_row['global_key'],
-            'status': 'Not annotated'  # Default status
+            'status': 'Not labeled'  # Default status
         }
         
         for project_id, project_info in projects.items():
@@ -151,23 +151,23 @@ def extract_annotations(data):
                                         'created_at': label['label_details'].get('created_at', ''),
                                         'taxa': obj['classifications'][0]['checklist_answers'][0]['name'],
                                         'taxa_id': obj['classifications'][0]['checklist_answers'][0]['value'],
-                                        'status': 'Annotated'
+                                        'status': 'Labeled'
                                     }
-                                    annotations.append(annotation)
+                                    labels.append(annotation)
                             except (IndexError, KeyError) as e:
                                 continue
         
         images.append(image_info)
     
     # Create DataFrames
-    annotations_df = pd.DataFrame(annotations) if annotations else pd.DataFrame()
+    labels_df = pd.DataFrame(labels) if labels else pd.DataFrame()
     images_df = pd.DataFrame(images)
     
-    # Add taxonomic rank information if we have annotations
-    if not annotations_df.empty:
+    # Add taxonomic rank information if we have labels
+    if not labels_df.empty:
         info_placeholder = st.empty()
         info_placeholder.info("Fetching taxonomic information from GBIF API...")
-        unique_taxa_ids = annotations_df['taxa_id'].unique()
+        unique_taxa_ids = labels_df['taxa_id'].unique()
         
         # Create a progress bar
         progress_bar = st.progress(0)
@@ -181,12 +181,12 @@ def extract_annotations(data):
         progress_bar.empty()
         info_placeholder.empty()
         
-        # Map ranks to annotations
-        annotations_df['taxonomic_rank'] = annotations_df['taxa_id'].map(lambda x: gbif_info_mapping[x]['rank'])
+        # Map ranks to labels
+        labels_df['taxonomic_rank'] = labels_df['taxa_id'].map(lambda x: gbif_info_mapping[x]['rank'])
         
-        return annotations_df, images_df, gbif_info_mapping
+        return labels_df, images_df, gbif_info_mapping
     
-    return annotations_df, images_df, {}
+    return labels_df, images_df, {}
 
 def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key):
     """Process and display annotation and image data."""
@@ -222,30 +222,35 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         fig = px.pie(values=status_counts_images.values, names=status_counts_images.index)
         st.plotly_chart(fig)
 
-    # Process annotations data
-    if all_annotations:
-        df = pd.concat(all_annotations, ignore_index=True)
+    # Process labels data
+    if all_labels and selected_status != 'TO_LABEL':
+        df = pd.concat(all_labels, ignore_index=True)
         
-        st.subheader("Annotation Statistics")
+        # Apply the same filter from images if available
+        if all_images:
+            filtered_image_ids = filtered_images_df['image_id'].unique()
+            df = df[df['image_id'].isin(filtered_image_ids)]
+        
+        st.subheader("Label Statistics")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Total Annotations", len(df))
+            st.metric("Total Labels", len(df))
         with col2:
-            st.metric("Unique Taxa", df['taxa'].nunique())
+            st.metric("Unique Taxa", df['taxa_id'].nunique())
         with col3:
             st.metric("Number of Labelers", df['labeler'].nunique())
         with col4:
-            images_with_multiple_annotations = df['image_id'].value_counts()
-            num_images_with_multiple_annotations = (images_with_multiple_annotations > 1).sum()
-            st.metric("Images with >1 Annotation", num_images_with_multiple_annotations)
+            images_with_multiple_labels = df['image_id'].value_counts()
+            num_images_with_multiple_labels = (images_with_multiple_labels > 1).sum()
+            st.metric("Images with >1 Label", num_images_with_multiple_labels)
         
         # Create visualizations
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Annotations by Taxa")
-            taxa_counts = df['taxa'].value_counts()
+            st.subheader("Labels by Taxa")
+            taxa_counts = df['taxa_id'].value_counts()
             
             chart_orientation = st.radio(
                 "Chart orientation",
@@ -282,7 +287,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader("Annotations by Labeler")
+            st.subheader("Labels by Labeler")
             labeler_counts = df['labeler'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
             st.plotly_chart(fig)
@@ -292,7 +297,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Annotations by Taxonomic Rank")
+            st.subheader("Labels by Taxonomic Rank")
             rank_counts = df['taxonomic_rank'].value_counts()
             fig = px.bar(
                 x=rank_counts.index,
@@ -307,32 +312,33 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         
         with col2:
             st.subheader("Taxa Count by Rank")
-            rank_taxa_counts = df.groupby('taxonomic_rank')['taxa'].nunique().reset_index()
+            rank_taxa_counts = df.groupby('taxonomic_rank')['taxa_id'].nunique().reset_index()
             fig = px.pie(
                 rank_taxa_counts,
-                values='taxa',
+                values='taxa_id',
                 names='taxonomic_rank',
                 title="Unique Taxa Distribution by Rank"
             )
-            st.plotly_chart(fig)
+            st.plotly_chart(fig, use_container_width=True)
         
         # Detailed breakdown table
         st.subheader("Detailed Rank Breakdown")
-        rank_summary = df.groupby('taxonomic_rank').agg({
-            'taxa': 'nunique',
-            'taxa_id': 'count',
-        }).rename(columns={
-            'taxa': 'Unique Taxa',
-            'taxa_id': 'Total Annotations',
-        }).reset_index()
-        rank_summary.rename(columns={'taxonomic_rank': 'Taxonomic Rank'}, inplace=True)
+        rank_summary = df.groupby('taxonomic_rank').agg(
+            Unique_Taxa=('taxa_id', 'nunique'),
+            Total_Labels=('taxa_id', 'count')
+        ).reset_index()
+        rank_summary.rename(columns={
+            'taxonomic_rank': 'Taxonomic Rank',
+            'Unique_Taxa': 'Unique Taxa',
+            'Total_Labels': 'Total Labels'
+        }, inplace=True)
         st.dataframe(rank_summary, use_container_width=True)
         
         # Show taxa list with rank information
         st.subheader("Taxa List with Taxonomic Ranks")
         
         # Create comprehensive taxa DataFrame
-        taxa_with_ranks = df.groupby(['taxa', 'taxa_id', 'taxonomic_rank']).size().reset_index(name='annotation_count')
+        taxa_with_ranks = df.groupby(['taxa', 'taxa_id', 'taxonomic_rank']).size().reset_index(name='label_count')
         taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxa'])
         
         # Display the table
@@ -350,35 +356,34 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             key=f"download_taxa_ranks_{tab_key}"
         )
         
-        # New section for species-level annotations with image URLs
-        st.subheader("Species-Level Annotations with Image Data")
+        # New section for species-level labels with image URLs
+        st.subheader("Species-Level Labels with Image Data")
         
         # Filter for species rank only
-        species_annotations = df[df['taxonomic_rank'] == 'SPECIES'].copy()
+        species_labels = df[df['taxonomic_rank'] == 'SPECIES'].copy()
         
-        if not species_annotations.empty:
+        if not species_labels.empty:
             # Create summary statistics
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("Species Annotations", len(species_annotations))
+                st.metric("Species Labels", len(species_labels))
             with col2:
-                st.metric("Unique Species", species_annotations['taxa'].nunique())
+                st.metric("Unique Species", species_labels['taxa'].nunique())
             
             # Create download data with image URLs
-            # Note: Assuming image_id can be used to construct URLs or you have URL data
-            species_download_data = species_annotations[['image_id', 'taxa', 'taxa_id', 'labeler', 'created_at']].copy()
+            species_download_data = species_labels[['image_id', 'taxa', 'taxa_id', 'labeler', 'created_at']].copy()
             
             # Rename columns for clarity
             species_download_data.rename(columns={
                 'image_id': 'Image_ID',
                 'taxa': 'Species_Name',
                 'taxa_id': 'GBIF_Taxon_ID',
-                'labeler': 'Annotated_By',
-                'created_at': 'Annotation_Date'
+                'labeler': 'Labeled_By',
+                'created_at': 'Label_Date'
             }, inplace=True)
             
             # Display preview
-            st.write(f"Preview of species annotations ({len(species_download_data)} records):")
+            st.write(f"Preview of species labels ({len(species_download_data)} records):")
             st.dataframe(species_download_data.head(10), use_container_width=True)
             
             # Convert to CSV for download
@@ -386,15 +391,15 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             
             # Download button for species data
             st.download_button(
-                label="Download Species Annotations with Image URLs as CSV",
+                label="Download Species Labels with Image URLs as CSV",
                 data=species_csv,
                 file_name=f"{tab_key}_species_images.csv",
                 mime="text/csv",
-                help="Download all annotations with SPECIES rank including image URLs",
+                help="Download all labels with SPECIES rank including image URLs",
                 key=f"download_species_{tab_key}"
             )
         else:
-            st.info("No species-level annotations found in the dataset.")
+            st.info("No species-level labels found in the dataset.")
     
         # Map GBIF information to the main DataFrame
         df['GBIF_Species'] = df['taxa_id'].map(lambda x: all_gbif_info.get(x, {}).get('species', 'Unknown'))
@@ -415,27 +420,27 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         # Display updated table
         st.dataframe(rank_summary, use_container_width=True)
         
-        # New section for annotation counts at species, genus, and family levels
-        st.subheader("Annotation Counts by Taxonomic Levels")
+        # New section for label counts at species, genus, and family levels
+        st.subheader("Label Counts by Taxonomic Levels")
 
-        # Count annotations at each level
+        # Count labels at each level
         taxonomic_level_counts = df['taxonomic_rank'].value_counts()
 
         # Create a DataFrame for display
         taxonomic_level_summary = pd.DataFrame({
             'Taxonomic Level': taxonomic_level_counts.index,
-            'Annotation Count': taxonomic_level_counts.values
+            'Label Count': taxonomic_level_counts.values
         })
 
         # Display the table
         st.dataframe(taxonomic_level_summary, use_container_width=True)
         
-    if not all_annotations and not all_images:
+    if not all_labels and not all_images:
         st.error("No valid data found")
 
 def main():
-    st.set_page_config(page_title="Labelbox Annotations Dashboard", layout="wide")
-    st.title("Labelbox Annotations Dashboard")
+    st.set_page_config(page_title="Labelbox Dashboard", layout="wide")
+    st.title("Labelbox Dashboard")
     
     # Create tabs
     tab1, tab2, tab3 = st.tabs(["Upload Files", "Barro Colorado Island", "Tiputini Biodiversity Station"])
@@ -451,7 +456,7 @@ def main():
         if not uploaded_files:
             st.warning("Please upload one or more NDJSON files exported from Labelbox to begin.")
         else:
-            all_annotations = []
+            all_labels = []
             all_images = []
             all_gbif_info = {}
             
@@ -461,12 +466,12 @@ def main():
                     content = uploaded_file.getvalue().decode()
                     raw_data = [json.loads(line) for line in content.splitlines() if line.strip()]
                     
-                    annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                    labels_df, images_df, gbif_info_mapping = extract_labels(raw_data)
                     
                     if not images_df.empty:
                         all_images.append(images_df)
-                    if not annotations_df.empty:
-                        all_annotations.append(annotations_df)
+                    if not labels_df.empty:
+                        all_labels.append(labels_df)
                     # Merge GBIF info mappings from all files
                     all_gbif_info.update(gbif_info_mapping)
                         
@@ -475,7 +480,7 @@ def main():
                     continue
             
             # Display the data
-            process_and_display_data(all_annotations, all_images, all_gbif_info, 'upload')
+            process_and_display_data(all_labels, all_images, all_gbif_info, 'upload')
     
     # Tab 2: Barro Colorado Island
     with tab2:
@@ -489,21 +494,21 @@ def main():
             if error:
                 st.error(f"Error loading BCI data: {error}")
             elif raw_data:
-                all_annotations = []
+                all_labels = []
                 all_images = []
                 all_gbif_info = {}
                 
                 try:
-                    annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                    labels_df, images_df, gbif_info_mapping = extract_labels(raw_data)
                     
                     if not images_df.empty:
                         all_images.append(images_df)
-                    if not annotations_df.empty:
-                        all_annotations.append(annotations_df)
+                    if not labels_df.empty:
+                        all_labels.append(labels_df)
                     all_gbif_info.update(gbif_info_mapping)
                     
                     # Display the data
-                    process_and_display_data(all_annotations, all_images, all_gbif_info, '2024_BCI')
+                    process_and_display_data(all_labels, all_images, all_gbif_info, '2024_BCI')
                     
                 except Exception as e:
                     st.error(f"Error processing BCI data: {str(e)}")
