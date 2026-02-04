@@ -208,3 +208,6 @@ __marimo__/
 
 # VS Code workspace settings
 *.code-workspace
+
+# Streamlit
+.streamlit/
