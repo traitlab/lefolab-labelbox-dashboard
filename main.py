@@ -199,28 +199,36 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         st.header("Filter Options")
         col1, col2 = st.columns([1, 3])  # Make left column smaller
         with col1:
-            available_statuses = ['All'] + sorted(images_df['status'].unique().tolist())
-            selected_status = st.selectbox("Filter by Status", available_statuses, index=0, key=f"status_filter_{tab_key}")
+            # Create status options with counts
+            status_counts = images_df['status'].value_counts()
+            status_options = [f"ALL ({len(images_df)})"]
+            status_mapping = {'ALL': f"ALL ({len(images_df)})"}
+            
+            for status in sorted(images_df['status'].unique().tolist()):
+                count = status_counts[status]
+                display_text = f"{status} ({count})"
+                status_options.append(display_text)
+                status_mapping[status] = display_text
+            
+            selected_status_display = st.selectbox("Filter by Status", status_options, index=0, key=f"status_filter_{tab_key}")
+            
+            # Extract actual status from display text
+            selected_status = selected_status_display.split(' (')[0]
         
         # Filter data based on selection
-        if selected_status != 'All':
+        if selected_status != 'ALL':
             filtered_images_df = images_df[images_df['status'] == selected_status]
         else:
             filtered_images_df = images_df
-        
-        # Dashboard metrics
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric("Total Images", len(images_df))
-        with col2:
-            st.metric("Images Annotated", len(pd.concat(all_annotations, ignore_index=True)['image_id'].unique()))
 
-        # Show status distribution
-        st.subheader("Image Status Distribution")
-        status_counts_images = images_df['status'].value_counts()
-        fig = px.pie(values=status_counts_images.values, names=status_counts_images.index)
-        st.plotly_chart(fig)
+        # Show status distribution if 'ALL' is selected
+        if selected_status == 'ALL':
+            st.subheader("Image Status Distribution")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                status_counts_images = filtered_images_df['status'].value_counts()
+                fig = px.pie(values=status_counts_images.values, names=status_counts_images.index)
+                st.plotly_chart(fig, use_container_width=True)
 
     # Process labels data
     if all_labels and selected_status != 'TO_LABEL':
