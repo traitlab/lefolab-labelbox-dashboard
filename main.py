@@ -181,8 +181,25 @@ def extract_labels(data):
         progress_bar.empty()
         info_placeholder.empty()
         
-        # Map ranks to labels
-        labels_df['taxonomic_rank'] = labels_df['taxa_id'].map(lambda x: gbif_info_mapping[x]['rank'])
+        # Map ranks and GBIF info to labels
+        labels_df['taxonomic_rank'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['rank'])
+        labels_df['gbif_species'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['species'])
+        labels_df['gbif_genus'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['genus'])
+        labels_df['gbif_family'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['family'])
+        
+        # Create gbif_taxon field based on rank
+        def get_gbif_taxon(row):
+            rank = row['taxonomic_rank']
+            if rank == 'SPECIES':
+                return row['gbif_species']
+            elif rank == 'GENUS':
+                return row['gbif_genus']
+            elif rank == 'FAMILY':
+                return row['gbif_family']
+            else:
+                return row['gbif_genus']  # Default to genus for other ranks
+        
+        labels_df['gbif_taxon'] = labels_df.apply(get_gbif_taxon, axis=1)
         
         return labels_df, images_df, gbif_info_mapping
     
@@ -343,7 +360,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             st.subheader("Labels by Labeler")
             labeler_counts = df['labeler'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig)
         
         # New visualizations for taxonomic ranks
         st.subheader("Taxonomic Rank Analysis")
@@ -454,19 +471,14 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         else:
             st.info("No species-level labels found in the dataset.")
     
-        # Map GBIF information to the main DataFrame
-        df['GBIF_Species'] = df['taxa_id'].map(lambda x: all_gbif_info.get(x, {}).get('species', 'Unknown'))
-        df['GBIF_Genus'] = df['taxa_id'].map(lambda x: all_gbif_info.get(x, {}).get('genus', 'Unknown'))
-        df['GBIF_Family'] = df['taxa_id'].map(lambda x: all_gbif_info.get(x, {}).get('family', 'Unknown'))
-
-        # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxa IDs
+        # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxon IDs
         rank_summary = pd.DataFrame({
             'Category': ['Unique Species', 'Unique Genera', 'Unique Families', 'Distinct Taxon IDs'],
             'Total Count': [
-                df['GBIF_Species'].nunique(),
-                df['GBIF_Genus'].nunique(),
-                df['GBIF_Family'].nunique(),
-                df['taxa_id'].nunique()
+                df['gbif_species'].nunique(),
+                df['gbif_genus'].nunique(),
+                df['gbif_family'].nunique(),
+                df['taxon_id'].nunique()
             ]
         })
 
@@ -511,7 +523,6 @@ def main():
         else:
             all_labels = []
             all_images = []
-            all_gbif_info = {}
             
             for uploaded_file in uploaded_files:
                 st.write(f"Processing: {uploaded_file.name}")
@@ -525,15 +536,13 @@ def main():
                         all_images.append(images_df)
                     if not labels_df.empty:
                         all_labels.append(labels_df)
-                    # Merge GBIF info mappings from all files
-                    all_gbif_info.update(gbif_info_mapping)
                         
                 except Exception as e:
                     st.error(f"Error processing {uploaded_file.name}: {str(e)}")
                     continue
             
             # Display the data
-            process_and_display_data(all_labels, all_images, all_gbif_info, 'upload')
+            process_and_display_data(all_labels, all_images, 'upload')
     
     # Tab 2: Barro Colorado Island
     with tab2:
@@ -549,7 +558,6 @@ def main():
             elif raw_data:
                 all_labels = []
                 all_images = []
-                all_gbif_info = {}
                 
                 try:
                     labels_df, images_df, gbif_info_mapping = extract_labels(raw_data)
@@ -558,10 +566,9 @@ def main():
                         all_images.append(images_df)
                     if not labels_df.empty:
                         all_labels.append(labels_df)
-                    all_gbif_info.update(gbif_info_mapping)
                     
                     # Display the data
-                    process_and_display_data(all_labels, all_images, all_gbif_info, '2024_BCI')
+                    process_and_display_data(all_labels, all_images, '2024_BCI')
                     
                 except Exception as e:
                     st.error(f"Error processing BCI data: {str(e)}")
@@ -580,21 +587,19 @@ def main():
             if error:
                 st.error(f"Error loading TBS data: {error}")
             elif raw_data:
-                all_annotations = []
+                all_labels = []
                 all_images = []
-                all_gbif_info = {}
                 
                 try:
-                    annotations_df, images_df, gbif_info_mapping = extract_annotations(raw_data)
+                    labels_df, images_df, gbif_info_mapping = extract_labels(raw_data)
                     
                     if not images_df.empty:
                         all_images.append(images_df)
-                    if not annotations_df.empty:
-                        all_annotations.append(annotations_df)
-                    all_gbif_info.update(gbif_info_mapping)
+                    if not labels_df.empty:
+                        all_labels.append(labels_df)
                     
                     # Display the data
-                    process_and_display_data(all_annotations, all_images, all_gbif_info, '2025_TBS')
+                    process_and_display_data(all_labels, all_images, '2025_TBS')
                     
                 except Exception as e:
                     st.error(f"Error processing TBS data: {str(e)}")
