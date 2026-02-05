@@ -1,10 +1,10 @@
+import bcrypt
 import boto3
 import json
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 import requests
-import bcrypt
 
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -214,7 +214,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         
         # Add status filter
         st.header("Filter Options")
-        col1, col2, col3 = st.columns([1, 2, 1])  # Make left column smaller
+        col1, col2, col3 = st.columns([1, 1, 2])  # Make left column smaller
         with col1:
             # Create status options with counts
             status_counts = images_df['status'].value_counts()
@@ -234,6 +234,47 @@ def process_and_display_data(all_labels, all_images, tab_key):
             selected_status = selected_status_display.split(' (')[0]
         
         with col2:
+            # Add taxonomic rank filter for labels
+            if all_labels:
+                rank_df = pd.concat(all_labels, ignore_index=True)
+                
+                if not rank_df.empty and 'taxonomic_rank' in rank_df.columns:
+                    st.subheader("Filter by rank")
+                    
+                    # Create rank options with counts, merging SUBSPECIES and VARIETY with SPECIES
+                    rank_counts = rank_df['taxonomic_rank'].value_counts()
+                    
+                    # Combine SUBSPECIES and VARIETY with SPECIES
+                    species_count = (rank_counts.get('SPECIES', 0) + 
+                                   rank_counts.get('SUBSPECIES', 0) + 
+                                   rank_counts.get('VARIETY', 0))
+                    
+                    rank_options = [f"ALL ({len(rank_df)})"]
+                    
+                    # Get unique ranks excluding SUBSPECIES and VARIETY
+                    unique_ranks = [r for r in sorted(rank_df['taxonomic_rank'].unique().tolist()) 
+                                  if r not in ['SUBSPECIES', 'VARIETY']]
+                    
+                    for rank in unique_ranks:
+                        if rank == 'SPECIES':
+                            # Use combined count for SPECIES
+                            display_text = f"SPECIES ({species_count})"
+                        else:
+                            count = rank_counts[rank]
+                            display_text = f"{rank} ({count})"
+                        rank_options.append(display_text)
+                    
+                    selected_rank_display = st.selectbox(
+                        "Taxonomic rank",
+                        rank_options,
+                        index=0,
+                        key=f"rank_filter_{tab_key}"
+                    )
+                    
+                    # Extract actual rank from display text
+                    selected_rank = selected_rank_display.split(' (')[0]
+
+        with col3:
             # Add date filter for labels
             if all_labels:
                 date_df = pd.concat(all_labels, ignore_index=True)
@@ -304,6 +345,14 @@ def process_and_display_data(all_labels, all_images, tab_key):
                 (df['created_at'].dt.date <= end_date)
             ].copy()
         
+        # Apply taxonomic rank filter
+        if 'selected_rank' in locals() and selected_rank != 'ALL':
+            if selected_rank == 'SPECIES':
+                # Include SPECIES, SUBSPECIES, and VARIETY
+                df = df[df['taxonomic_rank'].isin(['SPECIES', 'SUBSPECIES', 'VARIETY'])].copy()
+            else:
+                df = df[df['taxonomic_rank'] == selected_rank].copy()
+        
         st.subheader("Label Statistics")
         col1, col2, col3, col4 = st.columns(4)
         
@@ -341,18 +390,16 @@ def process_and_display_data(all_labels, all_images, tab_key):
             max_taxa_display = st.slider(
                 "Number of taxa to display",
                 min_value=5,
-                max_value=min(400, len(df['taxon_id'].unique())),
-                value=min(75, len(df['taxon_id'].unique())),
+                max_value=min(400, len(df['gbif_taxon'].unique())),
+                value=min(75, len(df['gbif_taxon'].unique())),
                 step=5,
                 key=f"max_taxa_{tab_key}"
             )
         
-        # Group by taxon_id and get the first taxon name for each
-        taxon_counts = df['taxon_id'].value_counts()
+        # Count by gbif_taxon
+        taxon_counts = df['gbif_taxon'].value_counts()
         # Keep only the top N taxa by count (user-configurable)
         taxon_counts = taxon_counts.head(max_taxa_display)
-        taxon_id_to_name = df.groupby('taxon_id')['taxon'].first()
-        taxon_names = taxon_counts.index.map(taxon_id_to_name)
         
         chart_orientation = st.radio(
             "Chart orientation",
@@ -364,7 +411,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         if chart_orientation == "Horizontal":
             fig = px.bar(
                 x=taxon_counts.values,
-                y=taxon_names,
+                y=taxon_counts.index,
                 orientation='h',
                 height=max(400, len(taxon_counts) * 20)
             )
@@ -375,7 +422,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
             )
         else:
             fig = px.bar(
-                x=taxon_names,
+                x=taxon_counts.index,
                 y=taxon_counts.values,
                 height=500
             )
