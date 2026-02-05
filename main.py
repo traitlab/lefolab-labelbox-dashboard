@@ -319,7 +319,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
 
         # Show status distribution if 'ALL' is selected
         if selected_status == 'ALL':
-            st.subheader("Image Status Distribution")
+            st.subheader("Image status distribution")
             col1, col2 = st.columns([1, 1])
             with col1:
                 status_counts_images = filtered_images_df['status'].value_counts()
@@ -353,7 +353,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
             else:
                 df = df[df['taxonomic_rank'] == selected_rank].copy()
         
-        st.subheader("Label Statistics")
+        st.subheader("Label statistics")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -371,7 +371,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Labels by Labeler")
+            st.subheader("Labels by labeler")
             # Map email addresses to names using LABELER_NAMES from secrets
             labeler_names = dict(st.secrets.get("LABELER_NAMES", {}))
             df['labeler_name'] = df['labeler'].map(labeler_names).fillna(df['labeler'])
@@ -380,7 +380,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
             st.plotly_chart(fig)
         
         with col2:
-            st.subheader("Labels by Taxonomic Rank")
+            st.subheader("Labels by taxonomic rank")
             rank_counts = df['taxonomic_rank'].value_counts()
             fig = px.pie(values=rank_counts.values, names=rank_counts.index)
             st.plotly_chart(fig)
@@ -389,11 +389,11 @@ def process_and_display_data(all_labels, all_images, tab_key):
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Unique Label by Taxonomic Rank")
+            st.subheader("Count of unique label by taxonomic rank")
 
             # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxon IDs
             rank_summary = pd.DataFrame({
-                'Category': ['Unique species', 'Unique genus', 'Unique families', 'Distinct taxon IDs'],
+                'Category': ['Species', 'Genus', 'Families', 'Distinct taxon IDs'],
                 'Total Count': [
                     df['gbif_species'].nunique(),
                     df['gbif_genus'].nunique(),
@@ -420,7 +420,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         #     st.dataframe(taxonomic_level_summary, hide_index=True)
 
         # Labels by taxon visualization
-        st.subheader("Labels by Taxon")
+        st.subheader("Labels by taxon")
         
         # Add user-configurable limit for number of taxa to display
         col1, col2 = st.columns([1, 3])
@@ -474,7 +474,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         st.plotly_chart(fig)
         
         # Show taxon list with rank information
-        st.subheader("Taxa List")
+        st.subheader("Taxa list")
         
         # Create comprehensive taxa DataFrame using gbif_taxon
         taxa_with_ranks = df.groupby(['taxon_id', 'taxonomic_rank']).agg(
@@ -500,7 +500,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
         )
         
         # Species-level labels with image URLs
-        st.subheader("Species-Level Labels with Image Data")
+        st.subheader("Species labels with image data")
         
         # Only show if ALL or SPECIES is selected in rank filter
         if 'selected_rank' not in locals() or selected_rank in ['ALL', 'SPECIES']:
@@ -512,21 +512,21 @@ def process_and_display_data(all_labels, all_images, tab_key):
                 # Create summary statistics
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Species Labels", len(species_labels))
+                    st.metric("Species labels", len(species_labels))
                 with col2:
-                    st.metric("Unique Species", species_labels['taxon'].nunique())
+                    st.metric("Unique species", species_labels['taxon'].nunique())
                 
                 # Create download data with image URLs
                 species_download_data = species_labels[['image_id', 'taxon', 'gbif_taxon', 'taxon_id', 'labeler', 'created_at']].copy()
                 
                 # Rename columns for clarity
                 species_download_data.rename(columns={
-                    'image_id': 'Image_ID',
-                    'taxon': 'Species_Name',
-                    'gbif_taxon': 'GBIF_Taxon',
-                    'taxon_id': 'GBIF_Taxon_ID',
-                    'labeler': 'Labeled_By',
-                    'created_at': 'Label_Date'
+                    'image_id': 'image_id',
+                    'taxon': 'taxon_code',
+                    'gbif_taxon': 'gbif_taxon',
+                    'taxon_id': 'gbif_taxon_id',
+                    'labeler': 'labeled_by',
+                    'created_at': 'label_date'
                 }, inplace=True)
                 
                 # Display preview
@@ -538,7 +538,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
                 
                 # Download button for species data
                 st.download_button(
-                    label="Download Species Labels with Image URLs as CSV",
+                    label="Download species labels with image URLs as CSV",
                     data=species_csv,
                     file_name=f"{tab_key}_species_images.csv",
                     mime="text/csv",
@@ -546,9 +546,9 @@ def process_and_display_data(all_labels, all_images, tab_key):
                     key=f"download_species_{tab_key}"
                 )
             else:
-                st.info("No species-level labels found in the dataset.")
+                st.info("No species labels found in the dataset.")
         else:
-            st.info("To view species-level labels, select 'ALL' or 'SPECIES' in the taxonomic rank filter.")
+            st.info("To view species labels, select 'ALL' or 'SPECIES' in the taxonomic rank filter.")
         
     if not all_labels and not all_images:
         st.error("No valid data found")
