@@ -242,11 +242,17 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
                 
                 if not date_df.empty:
                     st.subheader("Filter by date")
+                    
+                    min_date = date_df['created_at'].min().date()
+                    max_date = date_df['created_at'].max().date()
+
+                    # Reset button
+                    if st.button("Reset to full date range", key=f"reset_date_{tab_key}"):
+                        st.session_state[f"start_date_{tab_key}"] = min_date
+                        st.session_state[f"end_date_{tab_key}"] = max_date
+
                     col1, col2 = st.columns(2)
                     with col1:
-                        min_date = date_df['created_at'].min().date()
-                        max_date = date_df['created_at'].max().date()
-                        
                         start_date = st.date_input(
                             "Start date",
                             value=min_date,
@@ -281,22 +287,22 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
 
     # Process labels data
     if all_labels and selected_status != 'TO_LABEL':
-        df = pd.concat(all_labels, ignore_index=True)
+        df = pd.concat(all_labels, ignore_index=True).copy()
         
         # Apply the same filter from images if available
         if all_images:
             filtered_image_ids = filtered_images_df['image_id'].unique()
-            df = df[df['image_id'].isin(filtered_image_ids)]
+            df = df[df['image_id'].isin(filtered_image_ids)].copy()
         
         # Apply date filter
         df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
-        df = df.dropna(subset=['created_at'])
+        df = df.dropna(subset=['created_at']).copy()
         
         if not df.empty and 'start_date' in locals() and 'end_date' in locals():
             df = df[
                 (df['created_at'].dt.date >= start_date) & 
                 (df['created_at'].dt.date <= end_date)
-            ]
+            ].copy()
         
         st.subheader("Label Statistics")
         col1, col2, col3, col4 = st.columns(4)
@@ -316,100 +322,119 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Labels by Taxa")
-            # Group by taxa_id and get the first taxa name for each
-            taxa_counts = df['taxa_id'].value_counts()
-            taxa_id_to_name = df.groupby('taxa_id')['taxa'].first()
-            taxa_names = taxa_counts.index.map(taxa_id_to_name)
-            
-            chart_orientation = st.radio(
-                "Chart orientation",
-                ["Vertical", "Horizontal"],
-                horizontal=True,
-                key=f"taxa_chart_orientation_{tab_key}"
-            )
-            
-            if chart_orientation == "Horizontal":
-                fig = px.bar(
-                    x=taxa_counts.values,
-                    y=taxa_names,
-                    orientation='h',
-                    height=max(400, len(taxa_counts) * 20)
-                )
-                fig.update_layout(
-                    yaxis={'categoryorder': 'total ascending'},
-                    xaxis_title="Count",
-                    yaxis_title="Taxa"
-                )
-            else:
-                fig = px.bar(
-                    x=taxa_names,
-                    y=taxa_counts.values,
-                    height=500
-                )
-                fig.update_layout(
-                    xaxis={'categoryorder': 'total descending'},
-                    xaxis_title="Taxa",
-                    yaxis_title="Count"
-                )
-                fig.update_xaxes(tickangle=45)
-            
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
             st.subheader("Labels by Labeler")
             labeler_counts = df['labeler'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
             st.plotly_chart(fig)
         
-        # New visualizations for taxonomic ranks
-        st.subheader("Taxonomic Rank Analysis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
+        with col2:
             st.subheader("Labels by Taxonomic Rank")
             rank_counts = df['taxonomic_rank'].value_counts()
+            fig = px.pie(values=rank_counts.values, names=rank_counts.index)
+            st.plotly_chart(fig)
+        
+        st.subheader("Labels by Taxon")
+        
+        # Add user-configurable limit for number of taxa to display
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            max_taxa_display = st.slider(
+                "Number of taxa to display",
+                min_value=5,
+                max_value=min(400, len(df['taxon_id'].unique())),
+                value=min(75, len(df['taxon_id'].unique())),
+                step=5,
+                key=f"max_taxa_{tab_key}"
+            )
+        
+        # Group by taxon_id and get the first taxon name for each
+        taxon_counts = df['taxon_id'].value_counts()
+        # Keep only the top N taxa by count (user-configurable)
+        taxon_counts = taxon_counts.head(max_taxa_display)
+        taxon_id_to_name = df.groupby('taxon_id')['taxon'].first()
+        taxon_names = taxon_counts.index.map(taxon_id_to_name)
+        
+        chart_orientation = st.radio(
+            "Chart orientation",
+            ["Vertical", "Horizontal"],
+            horizontal=True,
+            key=f"taxon_chart_orientation_{tab_key}"
+        )
+        
+        if chart_orientation == "Horizontal":
             fig = px.bar(
-                x=rank_counts.index,
-                y=rank_counts.values,
-                title="Distribution of Taxonomic Ranks"
+                x=taxon_counts.values,
+                y=taxon_names,
+                orientation='h',
+                height=max(400, len(taxon_counts) * 20)
             )
             fig.update_layout(
-                xaxis_title="Taxonomic Rank",
+                yaxis={'categoryorder': 'total ascending'},
+                xaxis_title="Count",
+                yaxis_title="Taxon"
+            )
+        else:
+            fig = px.bar(
+                x=taxon_names,
+                y=taxon_counts.values,
+                height=500
+            )
+            fig.update_layout(
+                xaxis={'categoryorder': 'total descending'},
+                xaxis_title="Taxon",
                 yaxis_title="Count"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            fig.update_xaxes(tickangle=45)
         
-        with col2:
-            st.subheader("Taxa Count by Rank")
-            rank_taxa_counts = df.groupby('taxonomic_rank')['taxa_id'].nunique().reset_index()
-            fig = px.pie(
-                rank_taxa_counts,
-                values='taxa_id',
-                names='taxonomic_rank',
-                title="Unique Taxa Distribution by Rank"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
+
+
+        # with col2:
+        #                 # st.subheader("Labels by Taxonomic Rank")
+        #     # rank_counts = df['taxonomic_rank'].value_counts()
+        #     # fig = px.bar(
+        #     #     x=rank_counts.index,
+        #     #     y=rank_counts.values,
+        #     #     title="Distribution of Taxonomic Ranks"
+        #     # )
+        #     # fig.update_layout(
+        #     #     xaxis_title="Taxonomic Rank",
+        #     #     yaxis_title="Count"
+        #     # )
+        #     # st.plotly_chart(fig)
+        #     st.subheader("taxon Count by Rank")
+        #     rank_taxon_counts = df.groupby('taxonomic_rank')['taxon_id'].nunique().reset_index()
+        #     fig = px.pie(
+        #         rank_taxon_counts,
+        #         values='taxon_id',
+        #         names='taxonomic_rank',
+        #         title="Unique taxon Distribution by Rank"
+        #     )
+        #     st.plotly_chart(fig)
         
-        # Detailed breakdown table
-        st.subheader("Detailed Rank Breakdown")
-        rank_summary = df.groupby('taxonomic_rank').agg(
-            Unique_Taxa=('taxa_id', 'nunique'),
-            Total_Labels=('taxa_id', 'count')
+        # # Detailed breakdown table
+        # st.subheader("Detailed Rank Breakdown")
+        # rank_summary = df.groupby('taxonomic_rank').agg(
+        #     Unique_taxon=('taxon_id', 'nunique'),
+        #     Total_Labels=('taxon_id', 'count')
+        # ).reset_index()
+        # rank_summary.rename(columns={
+        #     'taxonomic_rank': 'Taxonomic Rank',
+        #     'Unique_taxon': 'Unique taxon',
+        #     'Total_Labels': 'Total Labels'
+        # }, inplace=True)
+        # st.dataframe(rank_summary)
+        
+        # Show taxon list with rank information
+        st.subheader("Taxa List")
+        
+        # Create comprehensive taxa DataFrame - group by taxon_id and get first taxon name
+        taxa_with_ranks = df.groupby(['taxon_id', 'taxonomic_rank']).agg(
+            taxon=('taxon', 'first'),
+            label_count=('taxon_id', 'count')
         ).reset_index()
-        rank_summary.rename(columns={
-            'taxonomic_rank': 'Taxonomic Rank',
-            'Unique_Taxa': 'Unique Taxa',
-            'Total_Labels': 'Total Labels'
-        }, inplace=True)
-        st.dataframe(rank_summary, use_container_width=True)
-        
-        # Show taxa list with rank information
-        st.subheader("Taxa List with Taxonomic Ranks")
-        
-        # Create comprehensive taxa DataFrame
-        taxa_with_ranks = df.groupby(['taxa', 'taxa_id', 'taxonomic_rank']).size().reset_index(name='label_count')
-        taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxa'])
+        taxa_with_ranks = taxa_with_ranks[['taxon', 'taxon_id', 'taxonomic_rank', 'label_count']]
+        taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxon'])
         
         # Display the table
         st.dataframe(taxa_with_ranks)
