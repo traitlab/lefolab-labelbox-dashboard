@@ -1,5 +1,5 @@
 # Labelbox dashboard
-Dashboard to visualize data from Labelbox projects using LEFO lableing schema. Works on BCI, TBS and Quebec projects currently.
+Dashboard to visualize data from Labelbox projects using LEFO labeling schema. Works on BCI, TBS and Quebec projects currently.
 
 # How to Export Data from a Project
 
