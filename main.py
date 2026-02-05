@@ -498,12 +498,12 @@ def process_and_display_data(all_labels, all_images, tab_key):
         
         # Species-level labels with image URLs
         st.subheader("Species-Level Labels with Image Data")
+        
         # Only show if ALL or SPECIES is selected in rank filter
         if 'selected_rank' not in locals() or selected_rank in ['ALL', 'SPECIES']:
-            st.subheader("Species-Level Labels with Image Data")
             
-            # Filter for species rank only
-            species_labels = df[df['taxonomic_rank'] == 'SPECIES'].copy()
+            # Filter for species rank only (including SUBSPECIES and VARIETY)
+            species_labels = df[df['taxonomic_rank'].isin(['SPECIES', 'SUBSPECIES', 'VARIETY'])].copy()
             
             if not species_labels.empty:
                 # Create summary statistics
@@ -514,12 +514,13 @@ def process_and_display_data(all_labels, all_images, tab_key):
                     st.metric("Unique Species", species_labels['taxon'].nunique())
                 
                 # Create download data with image URLs
-                species_download_data = species_labels[['image_id', 'taxon', 'taxon_id', 'labeler', 'created_at']].copy()
+                species_download_data = species_labels[['image_id', 'taxon', 'gbif_taxon', 'taxon_id', 'labeler', 'created_at']].copy()
                 
                 # Rename columns for clarity
                 species_download_data.rename(columns={
                     'image_id': 'Image_ID',
                     'taxon': 'Species_Name',
+                    'gbif_taxon': 'GBIF_Taxon',
                     'taxon_id': 'GBIF_Taxon_ID',
                     'labeler': 'Labeled_By',
                     'created_at': 'Label_Date'
