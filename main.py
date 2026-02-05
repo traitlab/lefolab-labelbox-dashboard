@@ -205,8 +205,8 @@ def extract_labels(data):
     
     return labels_df, images_df, {}
 
-def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key):
-    """Process and display annotation and image data."""
+def process_and_display_data(all_labels, all_images, tab_key):
+    """Process and display label and image data."""
 
     # Process images data
     if all_images:
