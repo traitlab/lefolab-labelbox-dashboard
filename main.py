@@ -324,6 +324,7 @@ def process_and_display_data(all_labels, all_images, tab_key):
             with col1:
                 status_counts_images = filtered_images_df['status'].value_counts()
                 fig = px.pie(values=status_counts_images.values, names=status_counts_images.index)
+                fig.update_layout(legend=dict(x=0.75, y=0.5))
                 st.plotly_chart(fig)
 
     # Process labels data
@@ -372,17 +373,34 @@ def process_and_display_data(all_labels, all_images, tab_key):
         
         with col1:
             st.subheader("Labels by labeler")
+            # Add blank space
+            st.markdown('<div style="height: 85px;"></div>', unsafe_allow_html=True)
             # Map email addresses to names using LABELER_NAMES from secrets
             labeler_names = dict(st.secrets.get("LABELER_NAMES", {}))
             df['labeler_name'] = df['labeler'].map(labeler_names).fillna(df['labeler'])
             labeler_counts = df['labeler_name'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
+            fig.update_layout(legend=dict(x=0.75, y=0.5))
             st.plotly_chart(fig)
         
         with col2:
             st.subheader("Labels by taxonomic rank")
-            rank_counts = df['taxonomic_rank'].value_counts()
+            
+            # Add labeler filter for this chart
+            all_labelers = sorted(df['labeler_name'].unique().tolist())
+            selected_labelers = st.multiselect(
+                "Filter by labeler",
+                options=all_labelers,
+                default=all_labelers,
+                key=f"rank_labeler_filter_{tab_key}"
+            )
+            
+            # Filter data based on selected labelers
+            df_rank_filtered = df[df['labeler_name'].isin(selected_labelers)] if selected_labelers else df
+            
+            rank_counts = df_rank_filtered['taxonomic_rank'].value_counts()
             fig = px.pie(values=rank_counts.values, names=rank_counts.index)
+            fig.update_layout(legend=dict(x=0.75, y=0.5))
             st.plotly_chart(fig)
         
         # Labels by taxonomic rank table        
