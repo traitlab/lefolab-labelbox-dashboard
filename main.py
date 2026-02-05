@@ -285,22 +285,25 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Total Labels", len(df))
+            st.metric("Images labeled", len(df['image_id'].unique()))
         with col2:
-            st.metric("Unique Taxa", df['taxa_id'].nunique())
+            st.metric("Total labels", len(df))
         with col3:
-            st.metric("Number of Labelers", df['labeler'].nunique())
-        with col4:
             images_with_multiple_labels = df['image_id'].value_counts()
             num_images_with_multiple_labels = (images_with_multiple_labels > 1).sum()
-            st.metric("Images with >1 Label", num_images_with_multiple_labels)
+            st.metric("Images with >1 label", num_images_with_multiple_labels)
+        with col4:
+            st.metric("Number of labelers", df['labeler'].nunique())
         
         # Create visualizations
         col1, col2 = st.columns(2)
         
         with col1:
             st.subheader("Labels by Taxa")
+            # Group by taxa_id and get the first taxa name for each
             taxa_counts = df['taxa_id'].value_counts()
+            taxa_id_to_name = df.groupby('taxa_id')['taxa'].first()
+            taxa_names = taxa_counts.index.map(taxa_id_to_name)
             
             chart_orientation = st.radio(
                 "Chart orientation",
@@ -312,7 +315,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             if chart_orientation == "Horizontal":
                 fig = px.bar(
                     x=taxa_counts.values,
-                    y=taxa_counts.index,
+                    y=taxa_names,
                     orientation='h',
                     height=max(400, len(taxa_counts) * 20)
                 )
@@ -323,7 +326,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
                 )
             else:
                 fig = px.bar(
-                    x=taxa_counts.index,
+                    x=taxa_names,
                     y=taxa_counts.values,
                     height=500
                 )
@@ -340,7 +343,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             st.subheader("Labels by Labeler")
             labeler_counts = df['labeler'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
-            st.plotly_chart(fig)
+            st.plotly_chart(fig, use_container_width=True)
         
         # New visualizations for taxonomic ranks
         st.subheader("Taxonomic Rank Analysis")
