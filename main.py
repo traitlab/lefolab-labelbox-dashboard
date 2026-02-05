@@ -197,7 +197,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         
         # Add status filter
         st.header("Filter Options")
-        col1, col2 = st.columns([1, 3])  # Make left column smaller
+        col1, col2, col3 = st.columns([1, 2, 1])  # Make left column smaller
         with col1:
             # Create status options with counts
             status_counts = images_df['status'].value_counts()
@@ -210,10 +210,42 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
                 status_options.append(display_text)
                 status_mapping[status] = display_text
             
-            selected_status_display = st.selectbox("Filter by Status", status_options, index=0, key=f"status_filter_{tab_key}")
+            st.subheader("Filter by status")
+            selected_status_display = st.selectbox("Labelbox status", status_options, index=0, key=f"status_filter_{tab_key}")
             
             # Extract actual status from display text
             selected_status = selected_status_display.split(' (')[0]
+        
+        with col2:
+            # Add date filter for labels
+            if all_labels:
+                date_df = pd.concat(all_labels, ignore_index=True)
+                date_df['created_at'] = pd.to_datetime(date_df['created_at'], errors='coerce')
+                date_df = date_df.dropna(subset=['created_at'])
+                
+                if not date_df.empty:
+                    st.subheader("Filter by date")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        min_date = date_df['created_at'].min().date()
+                        max_date = date_df['created_at'].max().date()
+                        
+                        start_date = st.date_input(
+                            "Start date",
+                            value=min_date,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key=f"start_date_{tab_key}"
+                        )
+                    
+                    with col2:
+                        end_date = st.date_input(
+                            "End date",
+                            value=max_date,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key=f"end_date_{tab_key}"
+                        )
         
         # Filter data based on selection
         if selected_status != 'ALL':
@@ -238,6 +270,16 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         if all_images:
             filtered_image_ids = filtered_images_df['image_id'].unique()
             df = df[df['image_id'].isin(filtered_image_ids)]
+        
+        # Apply date filter
+        df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
+        df = df.dropna(subset=['created_at'])
+        
+        if not df.empty and 'start_date' in locals() and 'end_date' in locals():
+            df = df[
+                (df['created_at'].dt.date >= start_date) & 
+                (df['created_at'].dt.date <= end_date)
+            ]
         
         st.subheader("Label Statistics")
         col1, col2, col3, col4 = st.columns(4)
