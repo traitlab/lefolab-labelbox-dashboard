@@ -90,10 +90,10 @@ def load_from_s3(file_key):
         return None, str(e)
 
 @st.cache_data
-def get_gbif_info(taxa_id):
+def get_gbif_info(taxon_id):
     """Fetch taxonomic information from GBIF API for a given taxon ID."""
     try:
-        url = f"https://api.gbif.org/v1/species/{taxa_id}"
+        url = f"https://api.gbif.org/v1/species/{taxon_id}"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
@@ -149,8 +149,8 @@ def extract_labels(data):
                                         'project_name': project_info['name'],
                                         'labeler': label['label_details'].get('created_by', 'Unknown'),
                                         'created_at': label['label_details'].get('created_at', ''),
-                                        'taxa': obj['classifications'][0]['checklist_answers'][0]['name'],
-                                        'taxa_id': obj['classifications'][0]['checklist_answers'][0]['value'],
+                                        'taxon': obj['classifications'][0]['checklist_answers'][0]['name'],
+                                        'taxon_id': obj['classifications'][0]['checklist_answers'][0]['value'],
                                         'status': 'Labeled'
                                     }
                                     labels.append(annotation)
@@ -167,15 +167,15 @@ def extract_labels(data):
     if not labels_df.empty:
         info_placeholder = st.empty()
         info_placeholder.info("Fetching taxonomic information from GBIF API...")
-        unique_taxa_ids = labels_df['taxa_id'].unique()
+        unique_taxon_ids = labels_df['taxon_id'].unique()
         
         # Create a progress bar
         progress_bar = st.progress(0)
         gbif_info_mapping = {}
         
-        for i, taxa_id in enumerate(unique_taxa_ids):
-            gbif_info_mapping[taxa_id] = get_gbif_info(taxa_id)
-            progress_bar.progress((i + 1) / len(unique_taxa_ids))
+        for i, taxon_id in enumerate(unique_taxon_ids):
+            gbif_info_mapping[taxon_id] = get_gbif_info(taxon_id)
+            progress_bar.progress((i + 1) / len(unique_taxon_ids))
         
         # Clear the progress bar and info message
         progress_bar.empty()
@@ -260,7 +260,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             with col1:
                 status_counts_images = filtered_images_df['status'].value_counts()
                 fig = px.pie(values=status_counts_images.values, names=status_counts_images.index)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
 
     # Process labels data
     if all_labels and selected_status != 'TO_LABEL':
@@ -295,7 +295,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         with col4:
             st.metric("Number of labelers", df['labeler'].nunique())
         
-        # Create visualizations
+        # Labels visualizations
         col1, col2 = st.columns(2)
         
         with col1:
@@ -395,7 +395,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxa'])
         
         # Display the table
-        st.dataframe(taxa_with_ranks, use_container_width=True)
+        st.dataframe(taxa_with_ranks)
         
         # Convert DataFrame to CSV for download
         csv = taxa_with_ranks.to_csv(index=False).encode('utf-8')
@@ -421,23 +421,23 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
             with col1:
                 st.metric("Species Labels", len(species_labels))
             with col2:
-                st.metric("Unique Species", species_labels['taxa'].nunique())
+                st.metric("Unique Species", species_labels['taxon'].nunique())
             
             # Create download data with image URLs
-            species_download_data = species_labels[['image_id', 'taxa', 'taxa_id', 'labeler', 'created_at']].copy()
+            species_download_data = species_labels[['image_id', 'taxon', 'taxon_id', 'labeler', 'created_at']].copy()
             
             # Rename columns for clarity
             species_download_data.rename(columns={
                 'image_id': 'Image_ID',
-                'taxa': 'Species_Name',
-                'taxa_id': 'GBIF_Taxon_ID',
+                'taxon': 'Species_Name',
+                'taxon_id': 'GBIF_Taxon_ID',
                 'labeler': 'Labeled_By',
                 'created_at': 'Label_Date'
             }, inplace=True)
             
             # Display preview
             st.write(f"Preview of species labels ({len(species_download_data)} records):")
-            st.dataframe(species_download_data.head(10), use_container_width=True)
+            st.dataframe(species_download_data.head(10))
             
             # Convert to CSV for download
             species_csv = species_download_data.to_csv(index=False).encode('utf-8')
@@ -461,7 +461,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
 
         # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxa IDs
         rank_summary = pd.DataFrame({
-            'Category': ['Unique Species', 'Unique Genera', 'Unique Families', 'Distinct Taxa IDs'],
+            'Category': ['Unique Species', 'Unique Genera', 'Unique Families', 'Distinct Taxon IDs'],
             'Total Count': [
                 df['GBIF_Species'].nunique(),
                 df['GBIF_Genus'].nunique(),
@@ -471,7 +471,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         })
 
         # Display updated table
-        st.dataframe(rank_summary, use_container_width=True)
+        st.dataframe(rank_summary)
         
         # New section for label counts at species, genus, and family levels
         st.subheader("Label Counts by Taxonomic Levels")
@@ -486,7 +486,7 @@ def process_and_display_data(all_annotations, all_images, all_gbif_info, tab_key
         })
 
         # Display the table
-        st.dataframe(taxonomic_level_summary, use_container_width=True)
+        st.dataframe(taxonomic_level_summary)
         
     if not all_labels and not all_images:
         st.error("No valid data found")
