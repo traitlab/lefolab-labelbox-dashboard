@@ -372,7 +372,10 @@ def process_and_display_data(all_labels, all_images, tab_key):
         
         with col1:
             st.subheader("Labels by Labeler")
-            labeler_counts = df['labeler'].value_counts()
+            # Map email addresses to names using LABELER_NAMES from secrets
+            labeler_names = dict(st.secrets.get("LABELER_NAMES", {}))
+            df['labeler_name'] = df['labeler'].map(labeler_names).fillna(df['labeler'])
+            labeler_counts = df['labeler_name'].value_counts()
             fig = px.pie(values=labeler_counts.values, names=labeler_counts.index)
             st.plotly_chart(fig)
         
@@ -402,19 +405,19 @@ def process_and_display_data(all_labels, all_images, tab_key):
             # Display updated table
             st.dataframe(rank_summary, hide_index=True)
 
-        with col2:
-            st.subheader("")
-            # Count labels at each level
-            taxonomic_level_counts = df['taxonomic_rank'].value_counts()
+        # with col2:
+        #     st.subheader("")
+        #     # Count labels at each level
+        #     taxonomic_level_counts = df['taxonomic_rank'].value_counts()
 
-            # Create a DataFrame for display
-            taxonomic_level_summary = pd.DataFrame({
-                'Taxonomic rank': taxonomic_level_counts.index,
-                'Label count': taxonomic_level_counts.values
-            })
+        #     # Create a DataFrame for display
+        #     taxonomic_level_summary = pd.DataFrame({
+        #         'Taxonomic rank': taxonomic_level_counts.index,
+        #         'Label count': taxonomic_level_counts.values
+        #     })
 
-            # Display the table
-            st.dataframe(taxonomic_level_summary, hide_index=True)
+        #     # Display the table
+        #     st.dataframe(taxonomic_level_summary, hide_index=True)
 
         # Labels by taxon visualization
         st.subheader("Labels by Taxon")
