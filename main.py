@@ -190,14 +190,14 @@ def extract_labels(data):
         # Create gbif_taxon field based on rank
         def get_gbif_taxon(row):
             rank = row['taxonomic_rank']
-            if rank == 'SPECIES':
+            if rank == 'SPECIES' or rank == 'SUBSPECIES' or rank == 'VARIETY':
                 return row['gbif_species']
             elif rank == 'GENUS':
                 return row['gbif_genus']
             elif rank == 'FAMILY':
                 return row['gbif_family']
             else:
-                return row['gbif_genus']  # Default to genus for other ranks
+                return row['gbif_family']  # Default to family for other ranks
         
         labels_df['gbif_taxon'] = labels_df.apply(get_gbif_taxon, axis=1)
         
@@ -382,6 +382,41 @@ def process_and_display_data(all_labels, all_images, tab_key):
             fig = px.pie(values=rank_counts.values, names=rank_counts.index)
             st.plotly_chart(fig)
         
+        # Labels by taxonomic rank table        
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Unique Label by Taxonomic Rank")
+
+            # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxon IDs
+            rank_summary = pd.DataFrame({
+                'Category': ['Unique species', 'Unique genus', 'Unique families', 'Distinct taxon IDs'],
+                'Total Count': [
+                    df['gbif_species'].nunique(),
+                    df['gbif_genus'].nunique(),
+                    df['gbif_family'].nunique(),
+                    df['taxon_id'].nunique()
+                ]
+            })
+
+            # Display updated table
+            st.dataframe(rank_summary, hide_index=True)
+
+        with col2:
+            st.subheader("")
+            # Count labels at each level
+            taxonomic_level_counts = df['taxonomic_rank'].value_counts()
+
+            # Create a DataFrame for display
+            taxonomic_level_summary = pd.DataFrame({
+                'Taxonomic rank': taxonomic_level_counts.index,
+                'Label count': taxonomic_level_counts.values
+            })
+
+            # Display the table
+            st.dataframe(taxonomic_level_summary, hide_index=True)
+
+        # Labels by taxon visualization
         st.subheader("Labels by Taxon")
         
         # Add user-configurable limit for number of taxa to display
@@ -434,57 +469,20 @@ def process_and_display_data(all_labels, all_images, tab_key):
             fig.update_xaxes(tickangle=45)
         
         st.plotly_chart(fig)
-
-
-        # with col2:
-        #                 # st.subheader("Labels by Taxonomic Rank")
-        #     # rank_counts = df['taxonomic_rank'].value_counts()
-        #     # fig = px.bar(
-        #     #     x=rank_counts.index,
-        #     #     y=rank_counts.values,
-        #     #     title="Distribution of Taxonomic Ranks"
-        #     # )
-        #     # fig.update_layout(
-        #     #     xaxis_title="Taxonomic Rank",
-        #     #     yaxis_title="Count"
-        #     # )
-        #     # st.plotly_chart(fig)
-        #     st.subheader("taxon Count by Rank")
-        #     rank_taxon_counts = df.groupby('taxonomic_rank')['taxon_id'].nunique().reset_index()
-        #     fig = px.pie(
-        #         rank_taxon_counts,
-        #         values='taxon_id',
-        #         names='taxonomic_rank',
-        #         title="Unique taxon Distribution by Rank"
-        #     )
-        #     st.plotly_chart(fig)
-        
-        # # Detailed breakdown table
-        # st.subheader("Detailed Rank Breakdown")
-        # rank_summary = df.groupby('taxonomic_rank').agg(
-        #     Unique_taxon=('taxon_id', 'nunique'),
-        #     Total_Labels=('taxon_id', 'count')
-        # ).reset_index()
-        # rank_summary.rename(columns={
-        #     'taxonomic_rank': 'Taxonomic Rank',
-        #     'Unique_taxon': 'Unique taxon',
-        #     'Total_Labels': 'Total Labels'
-        # }, inplace=True)
-        # st.dataframe(rank_summary)
         
         # Show taxon list with rank information
         st.subheader("Taxa List")
         
-        # Create comprehensive taxa DataFrame - group by taxon_id and get first taxon name
+        # Create comprehensive taxa DataFrame using gbif_taxon
         taxa_with_ranks = df.groupby(['taxon_id', 'taxonomic_rank']).agg(
-            taxon=('taxon', 'first'),
+            taxon=('gbif_taxon', 'first'),
             label_count=('taxon_id', 'count')
         ).reset_index()
         taxa_with_ranks = taxa_with_ranks[['taxon', 'taxon_id', 'taxonomic_rank', 'label_count']]
-        taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxon'])
+        taxa_with_ranks = taxa_with_ranks.sort_values(['taxonomic_rank', 'taxon']).reset_index(drop=True)
         
         # Display the table
-        st.dataframe(taxa_with_ranks)
+        st.dataframe(taxa_with_ranks, hide_index=True)
         
         # Convert DataFrame to CSV for download
         csv = taxa_with_ranks.to_csv(index=False).encode('utf-8')
@@ -498,79 +496,55 @@ def process_and_display_data(all_labels, all_images, tab_key):
             key=f"download_taxa_ranks_{tab_key}"
         )
         
-        # New section for species-level labels with image URLs
+        # Species-level labels with image URLs
         st.subheader("Species-Level Labels with Image Data")
-        
-        # Filter for species rank only
-        species_labels = df[df['taxonomic_rank'] == 'SPECIES'].copy()
-        
-        if not species_labels.empty:
-            # Create summary statistics
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Species Labels", len(species_labels))
-            with col2:
-                st.metric("Unique Species", species_labels['taxon'].nunique())
+        # Only show if ALL or SPECIES is selected in rank filter
+        if 'selected_rank' not in locals() or selected_rank in ['ALL', 'SPECIES']:
+            st.subheader("Species-Level Labels with Image Data")
             
-            # Create download data with image URLs
-            species_download_data = species_labels[['image_id', 'taxon', 'taxon_id', 'labeler', 'created_at']].copy()
+            # Filter for species rank only
+            species_labels = df[df['taxonomic_rank'] == 'SPECIES'].copy()
             
-            # Rename columns for clarity
-            species_download_data.rename(columns={
-                'image_id': 'Image_ID',
-                'taxon': 'Species_Name',
-                'taxon_id': 'GBIF_Taxon_ID',
-                'labeler': 'Labeled_By',
-                'created_at': 'Label_Date'
-            }, inplace=True)
-            
-            # Display preview
-            st.write(f"Preview of species labels ({len(species_download_data)} records):")
-            st.dataframe(species_download_data.head(10))
-            
-            # Convert to CSV for download
-            species_csv = species_download_data.to_csv(index=False).encode('utf-8')
-            
-            # Download button for species data
-            st.download_button(
-                label="Download Species Labels with Image URLs as CSV",
-                data=species_csv,
-                file_name=f"{tab_key}_species_images.csv",
-                mime="text/csv",
-                help="Download all labels with SPECIES rank including image URLs",
-                key=f"download_species_{tab_key}"
-            )
+            if not species_labels.empty:
+                # Create summary statistics
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Species Labels", len(species_labels))
+                with col2:
+                    st.metric("Unique Species", species_labels['taxon'].nunique())
+                
+                # Create download data with image URLs
+                species_download_data = species_labels[['image_id', 'taxon', 'taxon_id', 'labeler', 'created_at']].copy()
+                
+                # Rename columns for clarity
+                species_download_data.rename(columns={
+                    'image_id': 'Image_ID',
+                    'taxon': 'Species_Name',
+                    'taxon_id': 'GBIF_Taxon_ID',
+                    'labeler': 'Labeled_By',
+                    'created_at': 'Label_Date'
+                }, inplace=True)
+                
+                # Display preview
+                st.write(f"Preview of species labels ({len(species_download_data)} records):")
+                st.dataframe(species_download_data.head(10), hide_index=True)
+                
+                # Convert to CSV for download
+                species_csv = species_download_data.to_csv(index=False).encode('utf-8')
+                
+                # Download button for species data
+                st.download_button(
+                    label="Download Species Labels with Image URLs as CSV",
+                    data=species_csv,
+                    file_name=f"{tab_key}_species_images.csv",
+                    mime="text/csv",
+                    help="Download all labels with SPECIES rank including image URLs",
+                    key=f"download_species_{tab_key}"
+                )
+            else:
+                st.info("No species-level labels found in the dataset.")
         else:
-            st.info("No species-level labels found in the dataset.")
-    
-        # Update rank_summary table to include only total counts for unique species, genera, families, and distinct taxon IDs
-        rank_summary = pd.DataFrame({
-            'Category': ['Unique Species', 'Unique Genera', 'Unique Families', 'Distinct Taxon IDs'],
-            'Total Count': [
-                df['gbif_species'].nunique(),
-                df['gbif_genus'].nunique(),
-                df['gbif_family'].nunique(),
-                df['taxon_id'].nunique()
-            ]
-        })
-
-        # Display updated table
-        st.dataframe(rank_summary)
-        
-        # New section for label counts at species, genus, and family levels
-        st.subheader("Label Counts by Taxonomic Levels")
-
-        # Count labels at each level
-        taxonomic_level_counts = df['taxonomic_rank'].value_counts()
-
-        # Create a DataFrame for display
-        taxonomic_level_summary = pd.DataFrame({
-            'Taxonomic Level': taxonomic_level_counts.index,
-            'Label Count': taxonomic_level_counts.values
-        })
-
-        # Display the table
-        st.dataframe(taxonomic_level_summary)
+            st.info("To view species-level labels, select 'ALL' or 'SPECIES' in the taxonomic rank filter.")
         
     if not all_labels and not all_images:
         st.error("No valid data found")
