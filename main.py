@@ -618,7 +618,7 @@ def main():
         if check_password("bci"):       
             info_placeholder = st.empty()
             info_placeholder.info("Loading data from Arbutus...")
-            raw_data, error = load_from_s3('2024_BCI.json')
+            raw_data, error = load_from_s3('labelbox_exports_2024_bci.json')
             info_placeholder.empty()
             
             if error:
@@ -636,7 +636,7 @@ def main():
                         all_labels.append(labels_df)
                     
                     # Display the data
-                    process_and_display_data(all_labels, all_images, '2024_BCI')
+                    process_and_display_data(all_labels, all_images, '2024_bci')
                     
                 except Exception as e:
                     st.error(f"Error processing BCI data: {str(e)}")
@@ -649,7 +649,7 @@ def main():
         if check_password("tbs"):
             info_placeholder = st.empty()
             info_placeholder.info("Loading data from Arbutus...")
-            raw_data, error = load_from_s3('2025_TBS.json')
+            raw_data, error = load_from_s3('labelbox_exports_2025_tbs.json')
             info_placeholder.empty()
             
             if error:
@@ -667,7 +667,7 @@ def main():
                         all_labels.append(labels_df)
                     
                     # Display the data
-                    process_and_display_data(all_labels, all_images, '2025_TBS')
+                    process_and_display_data(all_labels, all_images, '2025_tbs')
                     
                 except Exception as e:
                     st.error(f"Error processing TBS data: {str(e)}")
