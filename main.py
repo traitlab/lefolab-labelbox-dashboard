@@ -82,12 +82,15 @@ def load_from_s3(file_key):
         response = s3_client.get_object(Bucket=bucket, Key=file_key)
         content = response['Body'].read().decode('utf-8')
         
+        # Get last modified date
+        last_modified = response['LastModified']
+
         # Parse NDJSON content
         raw_data = [json.loads(line) for line in content.splitlines() if line.strip()]
-        return raw_data, None
+        return raw_data, None, last_modified
         
     except Exception as e:
-        return None, str(e)
+        return None, str(e), None
 
 @st.cache_data
 def get_gbif_info(taxon_id):
@@ -205,8 +208,12 @@ def extract_labels(data):
     
     return labels_df, images_df, {}
 
-def process_and_display_data(all_labels, all_images, tab_key):
+def process_and_display_data(all_labels, all_images, tab_key, last_modified=None):
     """Process and display label and image data."""
+
+    # Display last modified date if available
+    if last_modified:
+        st.info(f"Data last updated: {last_modified.strftime('%B %d, %Y at %I:%M %p UTC')}")
 
     # Process images data
     if all_images:
@@ -618,7 +625,7 @@ def main():
         if check_password("bci"):       
             info_placeholder = st.empty()
             info_placeholder.info("Loading data from Arbutus...")
-            raw_data, error = load_from_s3('labelbox_exports_2024_bci.json')
+            raw_data, error, last_modified = load_from_s3('labelbox_exports_2024_bci.json')
             info_placeholder.empty()
             
             if error:
@@ -636,7 +643,7 @@ def main():
                         all_labels.append(labels_df)
                     
                     # Display the data
-                    process_and_display_data(all_labels, all_images, '2024_bci')
+                    process_and_display_data(all_labels, all_images, '2024_bci', last_modified)
                     
                 except Exception as e:
                     st.error(f"Error processing BCI data: {str(e)}")
@@ -649,7 +656,7 @@ def main():
         if check_password("tbs"):
             info_placeholder = st.empty()
             info_placeholder.info("Loading data from Arbutus...")
-            raw_data, error = load_from_s3('labelbox_exports_2025_tbs.json')
+            raw_data, error, last_modified = load_from_s3('labelbox_exports_2025_tbs.json')
             info_placeholder.empty()
             
             if error:
@@ -667,7 +674,7 @@ def main():
                         all_labels.append(labels_df)
                     
                     # Display the data
-                    process_and_display_data(all_labels, all_images, '2025_tbs')
+                    process_and_display_data(all_labels, all_images, '2025_tbs', last_modified)
                     
                 except Exception as e:
                     st.error(f"Error processing TBS data: {str(e)}")
