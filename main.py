@@ -6,8 +6,8 @@ import plotly.express as px
 import streamlit as st
 import requests
 
+from botocore.config import Config
 from datetime import datetime, timedelta
-from pathlib import Path
 
 def load_ndjson_data(file_path):
     """Load NDJSON (New-line Delimited JSON) data into a list."""
@@ -92,24 +92,110 @@ def load_from_s3(file_key):
     except Exception as e:
         return None, str(e), None
 
-@st.cache_data
-def get_gbif_info(taxon_id):
-    """Fetch taxonomic information from GBIF API for a given taxon ID."""
+def load_gbif_cache_from_s3():
+    """Load GBIF taxonomic cache from S3 bucket."""
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=st.secrets["AWS_REGION"],
+            endpoint_url=st.secrets["S3_ENDPOINT"]
+        )
+        
+        bucket = st.secrets["BUCKET"]
+        cache_key = "gbif_taxonomic_cache.json"
+        
+        response = s3_client.get_object(Bucket=bucket, Key=cache_key)
+        content = response['Body'].read().decode('utf-8')
+        cache_data = json.loads(content)
+        
+        return cache_data
+        
+    except Exception as e:
+        if 'NoSuchKey' in str(e):
+            st.info("No GBIF cache found in server. Creating new cache.")
+        else:
+            st.warning(f"Error loading GBIF cache from server: {str(e)}. Using empty cache.")
+        return {}
+
+def save_gbif_cache_to_s3(cache_data):
+    """Save GBIF taxonomic cache to S3 bucket."""
+    try:
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=st.secrets["AWS_ACCESS_KEY_ID"],
+            aws_secret_access_key=st.secrets["AWS_SECRET_ACCESS_KEY"],
+            region_name=st.secrets["AWS_REGION"],
+            endpoint_url=st.secrets["S3_ENDPOINT"],
+            config=Config(signature_version='s3')
+        )
+        
+        bucket = st.secrets["BUCKET"]
+        cache_key = "gbif_taxonomic_cache.json"
+        
+        # Convert to JSON and upload
+        cache_json = json.dumps(cache_data, indent=2)
+        cache_bytes = cache_json.encode('utf-8')
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=cache_key,
+            Body=cache_bytes,
+            ContentType='application/json'
+        )
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Error saving GBIF cache to server: {str(e)}")
+        return False
+
+def get_gbif_info(taxon_id, cache=None):
+    """Fetch taxonomic information from GBIF API for a given taxon ID.
+    
+    Args:
+        taxon_id: The GBIF taxon ID to look up
+        cache: Optional cache dictionary to check first
+    
+    Returns:
+        Tuple of (data_dict, was_fetched, is_new):
+            - data_dict: Dictionary with taxonomic information
+            - was_fetched: True if data was fetched from API (cache miss or invalid)
+            - is_new: True if taxon_id was not in cache before
+    """
+    is_new = False
+    was_fetched = False
+    
+    # Check cache first if provided
+    if cache is not None and str(taxon_id) in cache:
+        cached_data = cache[str(taxon_id)]
+        # Only use cache if canonicalName is not Unknown
+        if cached_data.get('canonicalName') != 'Unknown':
+            return cached_data, False, False
+    else:
+        is_new = True
+    
+    # Fetch from API if not in cache or cache data is invalid
+    was_fetched = True
     try:
         url = f"https://api.gbif.org/v1/species/{taxon_id}"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            return {
+            result = {
                 'rank': data.get('rank', 'Unknown'),
                 'species': data.get('species', 'Unknown'),
                 'genus': data.get('genus', 'Unknown'),
-                'family': data.get('family', 'Unknown')
+                'family': data.get('family', 'Unknown'),
+                'canonicalName': data.get('canonicalName', 'Unknown')   
             }
+            return result, was_fetched, is_new
         else:
-            return {'rank': 'Unknown', 'species': 'Unknown', 'genus': 'Unknown', 'family': 'Unknown'}
+            result = {'rank': 'Unknown', 'species': 'Unknown', 'genus': 'Unknown', 'family': 'Unknown', 'canonicalName': 'Unknown'}
+            return result, was_fetched, is_new
     except Exception as e:
-        return {'rank': 'Unknown', 'species': 'Unknown', 'genus': 'Unknown', 'family': 'Unknown'}
+        result = {'rank': 'Unknown', 'species': 'Unknown', 'genus': 'Unknown', 'family': 'Unknown', 'canonicalName': 'Unknown'}
+        return result, was_fetched, is_new
 
 def extract_labels(data):
     """Extract relevant label information from raw data."""
@@ -169,16 +255,41 @@ def extract_labels(data):
     # Add taxonomic rank information if we have labels
     if not labels_df.empty:
         info_placeholder = st.empty()
+        
+        # Load GBIF cache from S3
+        info_placeholder.info("Loading GBIF cache from server...")
+        gbif_cache = load_gbif_cache_from_s3()
+        
         info_placeholder.info("Fetching taxonomic information from GBIF API...")
         unique_taxon_ids = labels_df['taxon_id'].unique()
         
         # Create a progress bar
         progress_bar = st.progress(0)
         gbif_info_mapping = {}
+        cache_updated = False
+        new_taxa_count = 0
+        updated_taxa_count = 0
         
         for i, taxon_id in enumerate(unique_taxon_ids):
-            gbif_info_mapping[taxon_id] = get_gbif_info(taxon_id)
+            # Get info (from cache or API)
+            data, was_fetched, is_new = get_gbif_info(taxon_id, gbif_cache)
+            gbif_info_mapping[taxon_id] = data
+            
+            # Update cache and counts if data was fetched
+            if was_fetched:
+                gbif_cache[str(taxon_id)] = data
+                cache_updated = True
+                if is_new:
+                    new_taxa_count += 1
+                else:
+                    updated_taxa_count += 1
+            
             progress_bar.progress((i + 1) / len(unique_taxon_ids))
+        
+        # Save updated cache to S3 if changes were made
+        if cache_updated:
+            info_placeholder.info(f"Updating GBIF cache on server ({new_taxa_count} new, {updated_taxa_count} updated)...")
+            save_gbif_cache_to_s3(gbif_cache)
         
         # Clear the progress bar and info message
         progress_bar.empty()
@@ -189,6 +300,7 @@ def extract_labels(data):
         labels_df['gbif_species'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['species'])
         labels_df['gbif_genus'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['genus'])
         labels_df['gbif_family'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['family'])
+        labels_df['gbif_canonical_name'] = labels_df['taxon_id'].map(lambda x: gbif_info_mapping[x]['canonicalName'])
         
         # Create gbif_taxon field based on rank
         def get_gbif_taxon(row):
@@ -200,7 +312,7 @@ def extract_labels(data):
             elif rank == 'FAMILY':
                 return row['gbif_family']
             else:
-                return row['gbif_family']  # Default to family for other ranks
+                return row['gbif_canonical_name']  # Default to canonical name for other ranks
         
         labels_df['gbif_taxon'] = labels_df.apply(get_gbif_taxon, axis=1)
         
